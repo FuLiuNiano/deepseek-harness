@@ -1,4 +1,4 @@
-# Build the customized Desktop app and publish one GitHub Release per version.
+# Build the customized Desktop app and publish one GitHub Release per build.
 # The build is unsigned until a Windows signing certificate is supplied.
 name: Desktop release (GitHub)
 
@@ -37,22 +37,57 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          if ([string]::IsNullOrWhiteSpace($version)) { throw 'package.json has no version' }
-          # electron-updater's GitHub provider expects a semver tag (v-prefixed
-          # tags are supported), so do not use a custom non-semver tag here.
+          $baseVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ([string]::IsNullOrWhiteSpace($baseVersion)) { throw 'package.json has no version' }
+          $runNumber = [int]$env:GITHUB_RUN_NUMBER
+
+          function Test-GitHubRelease([string]$releaseTag) {
+            gh release view $releaseTag --repo $env:GITHUB_REPOSITORY *> $null
+            $found = $LASTEXITCODE -eq 0
+            # A missing release is the expected first-publish case. Clear the
+            # native command exit code before the next PowerShell statement.
+            $global:LASTEXITCODE = 0
+            return $found
+          }
+
+          # The upstream project may change source code without changing its
+          # package version. Give every such build a valid, increasing SemVer
+          # so electron-updater can see it as a new release.
+          $version = $baseVersion
           $tag = "v$version"
-          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
-          $exists = $LASTEXITCODE -eq 0
-          # A missing release is the expected first-publish case. Clear the
-          # native command exit code so the GitHub Actions PowerShell wrapper
-          # does not treat that expected lookup miss as a failed step.
-          $global:LASTEXITCODE = 0
+          if (Test-GitHubRelease $tag) {
+            if ($baseVersion.Contains('-')) {
+              $version = "$baseVersion.build.$runNumber"
+            } else {
+              $parts = $baseVersion.Split('.')
+              if ($parts.Count -ne 3) { throw "Unsupported base version: $baseVersion" }
+              $nextPatch = ([int]$parts[2]) + 1
+              $version = "$($parts[0]).$($parts[1]).$nextPatch-build.$runNumber"
+            }
+            $tag = "v$version"
+          }
+          $exists = Test-GitHubRelease $tag
           $shouldRelease = if ($exists) { 'false' } else { 'true' }
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "should_release=$shouldRelease" >> $env:GITHUB_OUTPUT
           if ($exists) { Write-Host "Release $tag already exists; skipping this commit." }
+
+      - name: Set unique build version
+        if: steps.release-check.outputs.should_release == 'true'
+        shell: pwsh
+        run: |
+          $version = '${{ steps.release-check.outputs.version }}'
+          foreach ($path in @('package.json', 'apps/desktop/package.json')) {
+            $package = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            $package.version = $version
+            $json = $package | ConvertTo-Json -Depth 100
+            [System.IO.File]::WriteAllText(
+              [string](Resolve-Path -LiteralPath $path),
+              "$json`n",
+              [System.Text.UTF8Encoding]::new($false)
+            )
+          }
 
       - uses: pnpm/action-setup@v4
         if: steps.release-check.outputs.should_release == 'true'
