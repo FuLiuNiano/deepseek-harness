@@ -73,6 +73,17 @@ jobs:
           "should_release=$shouldRelease" >> $env:GITHUB_OUTPUT
           if ($exists) { Write-Host "Release $tag already exists; skipping this commit." }
 
+      - uses: pnpm/action-setup@v4
+        if: steps.release-check.outputs.should_release == 'true'
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v6
+        if: steps.release-check.outputs.should_release == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+
       - name: Set unique build version
         if: steps.release-check.outputs.should_release == 'true'
         shell: pwsh
@@ -93,17 +104,6 @@ jobs:
             )
           }
           pnpm install --lockfile-only --ignore-scripts
-
-      - uses: pnpm/action-setup@v4
-        if: steps.release-check.outputs.should_release == 'true'
-        with:
-          version: 11.7.0
-
-      - uses: actions/setup-node@v6
-        if: steps.release-check.outputs.should_release == 'true'
-        with:
-          node-version: 24
-          cache: pnpm
 
       - name: Install dependencies
         if: steps.release-check.outputs.should_release == 'true'
