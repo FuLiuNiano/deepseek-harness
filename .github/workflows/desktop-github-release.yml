@@ -135,6 +135,20 @@ jobs:
           "metadata=$metadata" >> $env:GITHUB_OUTPUT
         id: artifacts
 
+      - name: Build portable Windows executable
+        if: steps.release-check.outputs.should_release == 'true'
+        shell: pwsh
+        run: |
+          $version = '${{ steps.release-check.outputs.version }}'
+          $root = 'apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts'
+          $portableRoot = 'apps/desktop/.desktop-build/targets/win-x64/portable-artifacts'
+          New-Item -ItemType Directory -Force -Path $portableRoot | Out-Null
+          pnpm exec electron-builder --config apps/desktop/electron-builder.config.mjs --win portable --x64 --publish never --prepackaged (Join-Path $root 'win-unpacked') --config.directories.output $portableRoot --config.artifactName "deepseek-harness-$version-portable.exe"
+          $portable = Join-Path $portableRoot "deepseek-harness-$version-portable.exe"
+          if (!(Test-Path -LiteralPath $portable)) { throw "Missing portable executable: $portable" }
+          "portable=$portable" >> $env:GITHUB_OUTPUT
+        id: portable
+
       - name: Publish GitHub Release
         if: steps.release-check.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
@@ -147,5 +161,6 @@ jobs:
           files: |
             ${{ steps.artifacts.outputs.installer }}
             ${{ steps.artifacts.outputs.metadata }}
+            ${{ steps.portable.outputs.portable }}
             apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/*.blockmap
           fail_on_unmatched_files: true
