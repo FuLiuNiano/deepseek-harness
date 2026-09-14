@@ -78,12 +78,24 @@ jobs:
         shell: pwsh
         run: |
           $version = '${{ steps.release-check.outputs.version }}'
-          $channel = if ($version.Contains('-')) { $version.Split('-')[1].Split('.')[0] } else { 'latest' }
           $root = 'apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts'
           $installer = Join-Path $root "deepseek-harness-$version-win-x64.exe"
-          $metadata = Join-Path $root "$channel.yml"
           if (!(Test-Path -LiteralPath $installer)) { throw "Missing installer: $installer" }
-          if (!(Test-Path -LiteralPath $metadata)) { throw "Missing update metadata: $metadata" }
+          # GitHub Releases uses latest.yml even when the package version is a
+          # prerelease. Resolve the file from the build output so this check
+          # stays aligned with electron-builder's provider-specific naming.
+          $metadataCandidates = @(Get-ChildItem -LiteralPath $root -Filter '*.yml' -File |
+            Where-Object { $_.Name -notlike 'builder-*.yml' })
+          if ($metadataCandidates.Count -eq 0) {
+            throw "Missing update metadata in: $root"
+          }
+          $metadata = ($metadataCandidates |
+            Where-Object { $_.Name -eq 'latest.yml' } |
+            Select-Object -First 1).FullName
+          if ([string]::IsNullOrWhiteSpace($metadata)) {
+            $metadata = $metadataCandidates[0].FullName
+          }
+          Write-Host "Updater metadata: $metadata"
           "installer=$installer" >> $env:GITHUB_OUTPUT
           "metadata=$metadata" >> $env:GITHUB_OUTPUT
         id: artifacts
