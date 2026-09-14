@@ -29,6 +29,9 @@ export class DesktopUpdateCoordinator {
   ) {
     this.updater.autoDownload = false
     this.updater.autoInstallOnAppQuit = false
+    // Use the stable GitHub Releases endpoint instead of the prerelease Atom feed.
+    // The feed can retain a deleted tag and make an otherwise valid update look missing.
+    this.updater.allowPrerelease = false
   }
 
   /** Check the configured Desktop release stream and retain an available version. */

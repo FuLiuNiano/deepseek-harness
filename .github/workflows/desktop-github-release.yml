@@ -148,7 +148,9 @@ jobs:
           tag_name: ${{ steps.release-check.outputs.tag }}
           name: DeepSeek Harness ${{ steps.release-check.outputs.version }}
           generate_release_notes: true
-          prerelease: ${{ contains(steps.release-check.outputs.version, '-') }}
+          # Keep one updater channel: the SemVer may contain a build suffix, but
+          # stable GitHub Releases let electron-updater use /releases/latest.
+          prerelease: false
           files: |
             ${{ steps.artifacts.outputs.installer }}
             ${{ steps.artifacts.outputs.metadata }}
