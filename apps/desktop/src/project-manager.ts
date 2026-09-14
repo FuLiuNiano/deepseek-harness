@@ -59,6 +59,15 @@ export interface DesktopRuntimeExecutables {
   readonly dsh: string
 }
 
+/** The community preset plugin included in a fresh packaged Desktop profile. */
+export const DESKTOP_PRESET_PLUS_SPEC = 'github:Rain-kl/dsh-preset-plus'
+export const DESKTOP_PRESET_PLUS_NAME = '@rain-kl/dsh-preset-plus'
+
+/** Optional first-run plugins installed into a new packaged Desktop profile. */
+export interface DesktopProjectManagerOptions {
+  readonly initialPluginSpecs?: readonly string[]
+}
+
 /** Hooks that stop the backend before profile writes and restart it after success. */
 export interface DesktopProjectHooks {
   /** Stop the active backend and await process exit before modifying its files. */
@@ -84,6 +93,7 @@ const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/[a-z0-9][a-z0-9._~-]*|
 const VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+_-]*$/u
 const MAX_PNPM_DIAGNOSTIC_BYTES = 64 * 1024
 const DESKTOP_REGISTRY = 'https://registry.npmjs.org/'
+const PRESET_PLUS_DEPENDENCY_PATTERN = /^github:Rain-kl\/dsh-preset-plus(?:#[A-Za-z0-9._=/-]+)?$/u
 
 function errorOf(reason: unknown, fallback: string): Error {
   return reason instanceof Error ? reason : new Error(fallback)
@@ -121,12 +131,19 @@ function assertVersion(version: string): void {
   if (!VERSION_PATTERN.test(version)) throw new Error(`desktop project: invalid exact version ${JSON.stringify(version)}`)
 }
 
+function isSupportedDependencySpec(spec: string): boolean {
+  return valid(spec) === spec || PRESET_PLUS_DEPENDENCY_PATTERN.test(spec)
+}
+
 /**
  * Validate one registry package spec and return its package name.
  * @param spec - npm registry name with an optional version or tag.
  * @returns Requested package name.
  */
 export function packageNameFromSpec(spec: string): string {
+  if (spec === DESKTOP_PRESET_PLUS_SPEC || PRESET_PLUS_DEPENDENCY_PATTERN.test(spec)) {
+    return DESKTOP_PRESET_PLUS_NAME
+  }
   if (spec === '' || spec.startsWith('-') || /[\s\\]/u.test(spec) || spec.includes('://') || spec.startsWith('file:')) {
     throw new Error(`desktop project: unsupported npm package spec ${JSON.stringify(spec)}`)
   }
@@ -158,7 +175,7 @@ function projectManifest(projectDir: string): DesktopProjectManifest {
   }
   const manifest = { ...value, dependencies: value.dependencies ?? {} } as unknown as DesktopProjectManifest
   if (Object.entries(manifest.dependencies).some(([name, version]) => !PACKAGE_NAME_PATTERN.test(name)
-    || typeof version !== 'string' || valid(version) !== version)) {
+    || typeof version !== 'string' || !isSupportedDependencySpec(version))) {
     throw new Error('desktop project: plugin dependencies must use exact registry versions')
   }
   return manifest
@@ -222,6 +239,7 @@ function inspectPlugin(projectDir: string, requestedName: string): DesktopPlugin
 export class DesktopProjectManager {
   private lockDescriptor: number | undefined
   private descriptor: DesktopRuntimeDescriptor | undefined
+  private readonly initialPluginSpecs: readonly string[]
 
   /**
    * @param paths - Electron-owned package state and reserved desktop profile paths.
@@ -230,7 +248,10 @@ export class DesktopProjectManager {
   constructor(
     readonly paths: DesktopPaths,
     readonly runtime: DesktopRuntimeExecutables,
-  ) {}
+    options: DesktopProjectManagerOptions = {},
+  ) {
+    this.initialPluginSpecs = options.initialPluginSpecs ?? []
+  }
 
   /** Read the active desktop plugin inventory. */
   listPlugins(): readonly DesktopPluginRecord[] {
@@ -317,9 +338,27 @@ export class DesktopProjectManager {
         return false
       }
       if (previous === undefined) createPluginProfile(this.paths.profile)
-      await this.reconcileProfile(this.paths.profile, previous)
+      const packagesChanged = previous === undefined && await this.installInitialPlugins(this.paths.profile)
+      await this.reconcileProfile(this.paths.profile, previous, packagesChanged)
       return true
     })
+  }
+
+  private async installInitialPlugins(projectDir: string): Promise<boolean> {
+    let changed = false
+    for (const spec of this.initialPluginSpecs) {
+      const name = packageNameFromSpec(spec)
+      if (Object.hasOwn(projectManifest(projectDir).dependencies, name)) continue
+      await this.runPnpm(projectDir, ['add', spec, '--save-exact', '--ignore-scripts'])
+      const installed = { ...inspectPlugin(projectDir, name), enabled: true }
+      const current = pluginRecords(projectDir).filter(plugin => plugin.name !== installed.name)
+      writeProfilePlugins(
+        projectDir,
+        [...current, installed].sort((left, right) => left.name.localeCompare(right.name)),
+      )
+      changed = true
+    }
+    return changed
   }
 
   /** Modify the current profile while its backend is stopped; failures retain partial changes. */
@@ -401,11 +440,15 @@ export class DesktopProjectManager {
       }
       case 'plugin-update':
         assertPackageName(mutation.name)
-        assertVersion(mutation.version)
+        const updateSpec = mutation.name === DESKTOP_PRESET_PLUS_NAME
+          && PRESET_PLUS_DEPENDENCY_PATTERN.test(mutation.version)
+          ? mutation.version
+          : `${mutation.name}@${mutation.version}`
+        if (updateSpec === `${mutation.name}@${mutation.version}`) assertVersion(mutation.version)
         if (!Object.hasOwn(projectManifest(projectDir).dependencies, mutation.name)) {
           throw new Error(`desktop project: plugin ${JSON.stringify(mutation.name)} is not installed`)
         }
-        await this.runPnpm(projectDir, ['add', `${mutation.name}@${mutation.version}`, '--save-exact', '--ignore-scripts'])
+        await this.runPnpm(projectDir, ['add', updateSpec, '--save-exact', '--ignore-scripts'])
         {
           const installed = inspectPlugin(projectDir, mutation.name)
           writeProfilePlugins(

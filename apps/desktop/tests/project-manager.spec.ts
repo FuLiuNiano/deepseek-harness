@@ -4,7 +4,13 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveDesktopPaths } from '../src/paths.ts'
-import { DesktopProjectManager, packageNameFromSpec, type DesktopProjectHooks } from '../src/project-manager.ts'
+import {
+  DESKTOP_PRESET_PLUS_NAME,
+  DESKTOP_PRESET_PLUS_SPEC,
+  DesktopProjectManager,
+  packageNameFromSpec,
+  type DesktopProjectHooks,
+} from '../src/project-manager.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
 
 const roots: string[] = []
@@ -28,9 +34,10 @@ if (command !== 'rebuild') {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
   if (command === 'add') {
     const spec = args[args.indexOf(command) + 1]
+    const isPresetPlus = spec.startsWith('github:Rain-kl/dsh-preset-plus')
     const index = spec.lastIndexOf('@')
-    const name = index > 0 ? spec.slice(0, index) : spec
-    manifest.dependencies[name] = index > 0 ? spec.slice(index + 1) : '1.0.0'
+    const name = isPresetPlus ? '@rain-kl/dsh-preset-plus' : index > 0 ? spec.slice(0, index) : spec
+    manifest.dependencies[name] = isPresetPlus ? spec : index > 0 ? spec.slice(index + 1) : '1.0.0'
   }
   if (command === 'remove') delete manifest.dependencies[args[args.indexOf(command) + 1]]
   writeFileSync(manifestPath, JSON.stringify(manifest))
@@ -38,7 +45,7 @@ if (command !== 'rebuild') {
   for (const [name, version] of Object.entries(manifest.dependencies)) {
     const packageRoot = join(project, 'node_modules', name)
     mkdirSync(packageRoot, { recursive: true })
-    writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({name, version,
+    writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({name, version: name === '@rain-kl/dsh-preset-plus' ? '0.1.5' : version,
       peerDependencies: {'@deepseek-ai/cordis': '^1.0.0'}, dsh: {bundle: {patch: './bundle.yml'}}}))
     writeFileSync(join(packageRoot, 'bundle.yml'), '[]\\n')
   }
@@ -157,9 +164,22 @@ describe('desktop external plugin profile', () => {
   it('accepts registry names and tags but rejects alternate sources and flags', () => {
     expect(packageNameFromSpec('@scope/plugin@1.2.3')).toBe('@scope/plugin')
     expect(packageNameFromSpec('plugin@next')).toBe('plugin')
+    expect(packageNameFromSpec(DESKTOP_PRESET_PLUS_SPEC)).toBe(DESKTOP_PRESET_PLUS_NAME)
     for (const spec of ['file:../plugin', '--registry=evil', 'https://example.test/plugin.tgz']) {
       expect(() => packageNameFromSpec(spec)).toThrow(/unsupported npm package spec/u)
     }
+  })
+
+  it('installs the preset-plus GitHub plugin on a fresh profile and can update it from GitHub', async () => {
+    const { root, manager } = setup()
+    const seeded = new DesktopProjectManager(manager.paths, manager.runtime, { initialPluginSpecs: [DESKTOP_PRESET_PLUS_SPEC] })
+    await seeded.applyRelease()
+    expect(seeded.listPlugins()).toEqual([{ name: DESKTOP_PRESET_PLUS_NAME, version: '0.1.5', enabled: true }])
+    await seeded.mutate({ type: 'plugin-update', name: DESKTOP_PRESET_PLUS_NAME, version: DESKTOP_PRESET_PLUS_SPEC }, hooks())
+    expect(calls(root).map(call => call.args.filter(arg => !arg.startsWith('--config.')))).toEqual([
+      ['add', DESKTOP_PRESET_PLUS_SPEC, '--save-exact', '--ignore-scripts'], ['rebuild', '--pending'],
+      ['add', DESKTOP_PRESET_PLUS_SPEC, '--save-exact', '--ignore-scripts'], ['rebuild', '--pending'],
+    ])
   })
 
   it('retries installation after an interrupted runtime rebuild removed plugin files', async () => {

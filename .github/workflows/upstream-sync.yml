@@ -1,0 +1,44 @@
+# Check the official repository daily and open a reviewable sync PR.
+# Conflicts stop the workflow instead of being silently published.
+name: Sync official DeepSeek Harness
+
+on:
+  schedule:
+    - cron: '15 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Sync official master
+    if: github.repository != 'deepseek-ai/deepseek-harness'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Merge official upstream
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/deepseek-ai/deepseek-harness.git
+          git fetch upstream master
+          git merge --no-edit upstream/master
+
+      - name: Open upstream sync PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ github.token }}
+          branch: automation/upstream-sync
+          delete-branch: true
+          title: 'chore: sync official DeepSeek Harness'
+          commit-message: 'chore: sync official DeepSeek Harness'
+          body: |
+            This PR syncs the customized desktop fork with `deepseek-ai/deepseek-harness`.
+
+            Review the desktop and plugin changes before merging. A merge conflict
+            fails the workflow and requires manual resolution.

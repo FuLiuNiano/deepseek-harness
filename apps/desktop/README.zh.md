@@ -37,6 +37,8 @@ Electron 根据应用 locale 选择类型化的英文或中文桌面壳文案，
 4. 插件添加、更新和删除使用内置 pnpm 及 Desktop 独有的包管理器状态。保留的宿主包必须声明为 peer；共享包的嵌套副本和别名会被验证拒绝。普通插件依赖必须解析到 profile 内部。
 5. 插件变更在直接修改当前 profile 前停止后端。准备成功后启动 Host。包操作或 Host 启动失败会保留已修改文件并报告错误。未完成的包操作保留标记，使下次启动重试锁定依赖的安装和待执行构建。Desktop 不创建 staging 目录、激活日志或回滚副本。
 
+新的打包应用首次启动时，会把 `github:Rain-kl/dsh-preset-plus` 安装到 Desktop profile。这个社区插件会增加和修改可用的提示词预设，只有选择 `preset-plus` 预设时才会启用。手动更新时，打开桌面插件管理器，点击它的更新按钮，并输入 `github:Rain-kl/dsh-preset-plus`；应用会从仓库当前默认分支获取最新版本。
+
 加载页不依赖 Host。错误页提供重启和重装指导。只有已打包应用的资源支持 profile 恢复时，才提供禁用插件和重置 Desktop；开发模式和早期初始化失败只提供重启。应用菜单仍提供插件管理器入口。每次后端启动前都会检查运行时标识；插件修改不自动回滚。
 
 重置删除 `$DSH_HOME/profiles/desktop` 中除所持事务锁外的所有条目，然后初始化内置 profile。它删除 Desktop 配置和已安装第三方包，不保留备份。共享任务、设置和 Harness-home `.env` 保持不变。壳资源和 preload 失败时使用独立文档显示可用恢复操作和诊断；其控件不依赖 preload。
@@ -143,7 +145,7 @@ macOS 签名遍历真实文件，不跟随 Framework 的软链接别名。PAK �
 pnpm run package:desktop:win:x64:unsigned
 ```
 
-该命令要求设置 `DSH_DESKTOP_APP_ID` 并具备常规构建依赖，包括编译原生模块所需的 Python 和 Visual C++ 构建工具。Python 不在 `PATH` 中时，将 `PYTHON` 设置为其可执行文件路径。命令将安装包写入 `.desktop-build/targets/win-x64/unsigned-artifacts/`，省略自动更新配置，清除签名凭据，且不生成发布完成记录。它不需要 EV 凭据或更新源地址。签名打包和上传命令仍遵循正式发布要求。
+该命令要求设置 `DSH_DESKTOP_APP_ID` 并具备常规构建依赖，包括编译原生模块所需的 Python 和 Visual C++ 构建工具。Python 不在 `PATH` 中时，将 `PYTHON` 设置为其可执行文件路径。命令将安装包写入 `.desktop-build/targets/win-x64/unsigned-artifacts/`，默认省略自动更新配置，清除签名凭据，且不生成发布完成记录。GitHub Actions 流程会额外设置 `DSH_DESKTOP_UPDATE_PROVIDER=github`，以便在未签名测试阶段生成 GitHub Releases 更新元数据；这只适合验证流程，正式分发仍应使用签名打包。它不需要 EV 凭据或更新源地址。签名打包和上传命令仍遵循正式发布要求。
 
 ### Windows EV 签名
 
@@ -189,6 +191,12 @@ pnpm run prepare:desktop
 打包应用会在主窗口打开十秒后检查目标专用的发布流；本地化的 **检查更新…** 菜单项会手动触发同一检查。发现可用版本时，应用打开一个原生确认弹窗。用户确认后，应用等待正在进行的检查完成，下载并验证已签名的 Desktop 发布、停止 dsh 子进程，并把安装与重启交给 electron-updater。下次启动在显示本地加载页的同时校准版本绑定的运行时。
 
 签名打包为 `DSH_DESKTOP_AUTO_UPDATE_ENV` 选择的部署生成 generic-provider 频道元数据。NSIS 差分包与 macOS ZIP 目标让 electron-updater 可以复用未变化的数据块；供手动安装的 DMG 经过公证，但不生成 blockmap，因为它不是 macOS updater 的载荷。运行时与桌面壳仍属于同一个签名 Desktop 发布。macOS 签名与公证凭据使用 electron-builder 的标准环境变量；Windows EV 签名使用上文所述的公开证书、已验证 SignTool、SafeNet 容器和 runner PIN。必填 Desktop 发布环境选择构建所验证的应用身份与平台签名身份。
+
+### GitHub Actions 自动发布
+
+仓库根目录的 `.github/workflows/upstream-sync.yml` 每天检查官方 `deepseek-ai/deepseek-harness`，发现变化时创建同步 PR。合并 PR 后，`.github/workflows/desktop-github-release.yml` 会在当前版本还没有对应 Release 时，在 Windows runner 上打包并发布安装包、频道元数据和 blockmap。它使用 GitHub Actions 提供的 `GITHUB_REPOSITORY` 自动确定更新仓库，不需要单独的下载服务器或 COS 凭据。
+
+将这份代码 Fork 到自己的 GitHub 仓库后，先在 Actions 页面手动运行一次 **Desktop release (GitHub)**。安装该 Release 生成的第一版客户端后，客户端菜单中的 **检查更新…** 才能读取同一仓库的后续 Release。当前工作流产生未签名 Windows 测试包；Windows 可能显示“未知发布者”，正式分发需要把签名证书接入受控 runner，并将工作流切换为签名打包。
 
 ## 底层开发覆盖项
 

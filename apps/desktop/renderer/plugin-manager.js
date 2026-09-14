@@ -53,7 +53,10 @@ async function main() {
       update.type = 'button'
       update.textContent = messages.update
       update.addEventListener('click', () => {
-        const next = window.prompt(message('targetVersion', { name: plugin.name }), plugin.version)?.trim()
+        const suggested = plugin.name === '@rain-kl/dsh-preset-plus'
+          ? 'github:Rain-kl/dsh-preset-plus'
+          : plugin.version
+        const next = window.prompt(message('targetVersion', { name: plugin.name }), suggested)?.trim()
         if (next === undefined || next === '' || next === plugin.version) return
         void run(() => api.plugins.update(plugin.name, next), message('updating', { name: plugin.name }))
       })

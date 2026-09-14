@@ -37,6 +37,8 @@ The signed `resources/dsh/desktop-runtime.json` binds the shell version, bundled
 4. Plugin add, update, and remove operations use bundled pnpm and Desktop-owned package-manager state. Reserved host packages must be peers; nested copies and aliases of shared packages fail validation. Ordinary plugin dependencies must resolve inside the profile.
 5. Plugin changes stop the backend before modifying the current profile. Successful preparation starts the Host. Package or Host startup failures retain modified files and report the error. Unfinished package operations retain a marker so the next launch retries the locked installation and pending builds. Desktop creates no staging directories, activation journals, or rollback copies.
 
+A fresh packaged profile installs `github:Rain-kl/dsh-preset-plus` on its first launch. This community plugin changes the available prompt presets and is only activated by selecting its `preset-plus` preset. To update it manually, open the Desktop plugin manager, choose its update action, and enter `github:Rain-kl/dsh-preset-plus`; the next version is fetched from the repository's current default branch.
+
 The loading page does not depend on the Host. Errors offer restart and reinstallation guidance. Disabling plugins and resetting Desktop are offered only when packaged application resources support profile recovery; development and early initialization failures expose restart alone. The plugin manager remains available through the application menu. Runtime identity is checked before any backend starts; plugin changes have no automatic rollback.
 
 Reset deletes every entry in `$DSH_HOME/profiles/desktop` except the held transaction lock, then initializes the built-in profile. It removes Desktop configuration and installed third-party packages without a backup. Shared tasks, settings, and the Harness-home `.env` are untouched. Shell resource and preload failures use a self-contained document with the available recovery actions and diagnostics; its controls do not require preload.
@@ -143,7 +145,7 @@ On Windows x64, use the complete unsigned packaging command for local installati
 pnpm run package:desktop:win:x64:unsigned
 ```
 
-The command requires `DSH_DESKTOP_APP_ID` and the normal build dependencies, including Python and Visual C++ build tools for native modules. Set `PYTHON` to the Python executable when it is absent from `PATH`. It writes the installer to `.desktop-build/targets/win-x64/unsigned-artifacts/`, omits automatic-update configuration, strips signing credentials, and creates no release completion record. It does not require EV credentials or an update origin. The signed packaging and upload commands retain their release requirements.
+The command requires `DSH_DESKTOP_APP_ID` and the normal build dependencies, including Python and Visual C++ build tools for native modules. Set `PYTHON` to the Python executable when it is absent from `PATH`. It writes the installer to `.desktop-build/targets/win-x64/unsigned-artifacts/`, omits automatic-update configuration by default, strips signing credentials, and creates no release completion record. The GitHub Actions workflow additionally sets `DSH_DESKTOP_UPDATE_PROVIDER=github` so the unsigned smoke-test build emits GitHub Releases update metadata; this is for validating the flow only, and signed packaging remains required for distribution. It does not require EV credentials or an update origin. The signed packaging and upload commands retain their release requirements.
 
 ### Windows EV signing
 
@@ -189,6 +191,12 @@ An unpacked artifact contains Electron, the materialized dsh production tree, up
 A packaged application checks its target-specific release stream ten seconds after the main window opens; the localized **Check for Updates…** menu item triggers the same check manually. An available release opens one native confirmation dialog. Accepting it waits for an in-flight check, downloads and verifies the signed Desktop release, stops the dsh child, and hands installation plus restart to electron-updater. The next launch displays the local loading page while reconciling the version-bound runtime.
 
 Signed packaging emits generic-provider channel metadata for the deployment selected by `DSH_DESKTOP_AUTO_UPDATE_ENV`. NSIS differential packages and the macOS ZIP target allow electron-updater to reuse unchanged blocks; the manually installed DMG is notarized without a blockmap because it is not a macOS updater payload. The runtime and shell still form one signed Desktop release. macOS signing and notarization credentials use electron-builder's standard environment; Windows EV signing uses the public certificate, validated SignTool, SafeNet container, and runner PIN described above. The required Desktop release environment selects the application and platform signature identities that the build verifies.
+
+### GitHub Actions publication
+
+The repository workflows provide a no-server release path. `.github/workflows/upstream-sync.yml` checks `deepseek-ai/deepseek-harness` daily and opens a reviewable sync PR when the official repository changes. After that PR is merged, `.github/workflows/desktop-github-release.yml` packages and publishes the Windows installer, channel metadata, and blockmap when the current version does not already have a Release. It derives the update repository from Actions' `GITHUB_REPOSITORY`, so no separate download server or COS credentials are needed.
+
+Fork this repository before using the workflows, then run **Desktop release (GitHub)** once from the Actions page. Install the first client from that Release; subsequent **Check for Updates…** checks read later Releases from the same repository. The current workflow produces an unsigned Windows smoke-test package, so Windows may show an “unknown publisher” warning. Production distribution requires connecting the signing certificate to a controlled runner and switching the workflow to signed packaging.
 
 ## Low-level development overrides
 

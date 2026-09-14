@@ -1,0 +1,100 @@
+# Build the customized Desktop app and publish one GitHub Release per version.
+# The build is unsigned until a Windows signing certificate is supplied.
+name: Desktop release (GitHub)
+
+on:
+  push:
+    branches: [master]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DSH_DESKTOP_APP_ID: com.deepseek.harness.desktop
+  DSH_DESKTOP_UPDATE_PROVIDER: github
+  DSH_DESKTOP_GITHUB_OWNER: ${{ github.repository_owner }}
+  DSH_DESKTOP_GITHUB_REPO: ${{ github.event.repository.name }}
+
+jobs:
+  release:
+    name: Windows x64 Desktop
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check whether this version already has a Release
+        id: release-check
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'package.json has no version' }
+          # electron-updater's GitHub provider expects a semver tag (v-prefixed
+          # tags are supported), so do not use a custom non-semver tag here.
+          $tag = "v$version"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          $exists = $LASTEXITCODE -eq 0
+          $shouldRelease = if ($exists) { 'false' } else { 'true' }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "should_release=$shouldRelease" >> $env:GITHUB_OUTPUT
+          if ($exists) { Write-Host "Release $tag already exists; skipping this commit." }
+
+      - uses: pnpm/action-setup@v4
+        if: steps.release-check.outputs.should_release == 'true'
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v6
+        if: steps.release-check.outputs.should_release == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.release-check.outputs.should_release == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Build unsigned Windows installer
+        if: steps.release-check.outputs.should_release == 'true'
+        run: pnpm run package:desktop:win:x64:unsigned
+
+      - name: Verify updater files
+        if: steps.release-check.outputs.should_release == 'true'
+        shell: pwsh
+        run: |
+          $version = '${{ steps.release-check.outputs.version }}'
+          $channel = if ($version.Contains('-')) { $version.Split('-')[1].Split('.')[0] } else { 'latest' }
+          $root = 'apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts'
+          $installer = Join-Path $root "deepseek-harness-$version-win-x64.exe"
+          $metadata = Join-Path $root "$channel.yml"
+          if (!(Test-Path -LiteralPath $installer)) { throw "Missing installer: $installer" }
+          if (!(Test-Path -LiteralPath $metadata)) { throw "Missing update metadata: $metadata" }
+          "installer=$installer" >> $env:GITHUB_OUTPUT
+          "metadata=$metadata" >> $env:GITHUB_OUTPUT
+        id: artifacts
+
+      - name: Publish GitHub Release
+        if: steps.release-check.outputs.should_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ steps.release-check.outputs.tag }}
+          name: DeepSeek Harness ${{ steps.release-check.outputs.version }}
+          generate_release_notes: true
+          prerelease: ${{ contains(steps.release-check.outputs.version, '-') }}
+          files: |
+            ${{ steps.artifacts.outputs.installer }}
+            ${{ steps.artifacts.outputs.metadata }}
+            apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/*.blockmap
+          fail_on_unmatched_files: true

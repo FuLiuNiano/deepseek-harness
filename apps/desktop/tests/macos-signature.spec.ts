@@ -135,6 +135,25 @@ describe('desktop macOS release signature', () => {
     })
   })
 
+  it('keeps GitHub Releases metadata enabled for unsigned Windows smoke tests', async () => {
+    const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
+    const config = createElectronBuilderConfig({
+      DSH_DESKTOP_APP_ID: RELEASE_ENVIRONMENT.DSH_DESKTOP_APP_ID,
+      DSH_DESKTOP_TARGET_PLATFORM: 'win32',
+      DSH_DESKTOP_UNSIGNED: '1',
+      DSH_DESKTOP_UPDATE_PROVIDER: 'github',
+      DSH_DESKTOP_GITHUB_OWNER: 'example-owner',
+      DSH_DESKTOP_GITHUB_REPO: 'deepseek-harness-desktop',
+    }, 'win32', 'x64')
+    expect(config).toMatchObject({
+      publish: [{
+        provider: 'github',
+        owner: 'example-owner',
+        repo: 'deepseek-harness-desktop',
+      }],
+    })
+  })
+
   it('rejects unsigned macOS builds and malformed signing modes', async () => {
     const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
     expect(() => createElectronBuilderConfig({ ...RELEASE_ENVIRONMENT, DSH_DESKTOP_UNSIGNED: '1' }))

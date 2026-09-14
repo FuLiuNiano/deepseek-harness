@@ -50,7 +50,11 @@ async function runPackageScript(script: string, cwd: string): Promise<void> {
   if (packageManager === undefined || packageManager === '') {
     throw new Error('desktop development: invoke this launcher through pnpm run dev:desktop or start:desktop')
   }
-  await run(process.execPath, [packageManager, 'run', script], cwd)
+  // pnpm on Windows may expose npm_execpath as pnpm.exe rather than a
+  // JavaScript entry file. Do not ask Node to parse the executable.
+  const executable = packageManager.toLowerCase().endsWith('.exe') ? packageManager : process.execPath
+  const args = executable === packageManager ? ['run', script] : [packageManager, 'run', script]
+  await run(executable, args, cwd)
 }
 
 async function launchElectron(): Promise<void> {

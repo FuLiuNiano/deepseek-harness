@@ -254,8 +254,12 @@ function runPnpm(
   if (pnpmEntry === undefined || pnpmEntry === '') {
     throw new Error('desktop package: invoke this script through a pnpm package command')
   }
+  // pnpm on Windows may expose npm_execpath as pnpm.exe. Invoke the native
+  // executable directly instead of asking Node to parse it as JavaScript.
+  const executable = pnpmEntry.toLowerCase().endsWith('.exe') ? pnpmEntry : process.execPath
+  const commandArgs = executable === pnpmEntry ? [...args] : [pnpmEntry, ...args]
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(process.execPath, [pnpmEntry, ...args], {
+    const child = spawn(executable, commandArgs, {
       cwd,
       env,
       stdio: 'inherit',

@@ -12,6 +12,7 @@ import {
   installWindowsNsisBootstrapSigner,
 } from './scripts/windows-sign.mjs'
 import { resolveDesktopAutoUpdateConfig } from './scripts/desktop-auto-update-environment.mjs'
+import { resolveDesktopGitHubPublishConfig } from './scripts/desktop-github-update-environment.mjs'
 import { desktopTargetBuildPaths, resolveDesktopBuildTarget } from './scripts/desktop-build-paths.mjs'
 
 /**
@@ -50,7 +51,13 @@ export function createElectronBuilderConfig(
   if (windowsSigner !== undefined) {
     installWindowsNsisBootstrapSigner({ sign: windowsSigner })
   }
-  const update = unsigned ? undefined : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
+  // GitHub Releases can be used for unsigned smoke-test builds so the updater
+  // path can be verified before a Windows signing certificate is available.
+  // Generic deployments retain the existing signed-only behavior.
+  const githubPublish = resolveDesktopGitHubPublishConfig(env)
+  const update = githubPublish === undefined && !unsigned
+    ? resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
+    : undefined
   const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch))
   return {
     appId,
@@ -122,7 +129,9 @@ export function createElectronBuilderConfig(
       allowToChangeInstallationDirectory: true,
       differentialPackage: true,
     },
-    publish: update === undefined ? null : [{ provider: 'generic', url: update.publicUrl }],
+    publish: githubPublish === undefined
+      ? update === undefined ? null : [{ provider: 'generic', url: update.publicUrl }]
+      : [githubPublish],
   }
 }
 

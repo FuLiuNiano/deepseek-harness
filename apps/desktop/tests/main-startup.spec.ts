@@ -106,6 +106,7 @@ vi.mock('electron', () => ({
 }))
 vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
 vi.mock('../src/project-manager.ts', () => ({
+  DESKTOP_PRESET_PLUS_SPEC: 'github:Rain-kl/dsh-preset-plus',
   DesktopProjectManager: class {
     readonly applyRelease = harness.applyRelease
     readonly assertProfileRuntime = harness.assertProfileRuntime

@@ -1,17 +1,19 @@
 /** Download and verify the upstream Node.js runtime and copy the pinned pnpm CLI. */
 
 import { createHash } from 'node:crypto'
-import { spawnSync } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { cpSync, createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { chmod, readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
+import { promisify } from 'node:util'
 import extractZip from 'extract-zip'
 import { extract } from 'tar'
 import { resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 
 const NODE_VERSION = '24.17.0'
+const execFileAsync = promisify(execFile)
 const BUILD_PATHS = resolveDesktopTargetBuildPaths()
 const RUNTIME_ROOT = BUILD_PATHS.runtime
 const DOWNLOAD_ROOT = BUILD_PATHS.downloads
@@ -55,7 +57,16 @@ async function prepareNode(platform: RuntimePlatform, arch: RuntimeArch): Promis
   const extraction = BUILD_PATHS.nodeExtract
   rmSync(extraction, { recursive: true, force: true })
   mkdirSync(extraction, { recursive: true })
-  if (platform === 'win') await extractZip(archive, { dir: extraction })
+  if (platform === 'win') {
+    // extract-zip/yauzl can leave the promise unresolved on Windows with the
+    // current Node release. Windows ships tar.exe with ZIP support, so use it
+    // for the native build and keep extract-zip for cross-platform builds.
+    if (process.platform === 'win32') {
+      await execFileAsync('tar.exe', ['-xf', archive, '-C', extraction])
+    } else {
+      await extractZip(archive, { dir: extraction })
+    }
+  }
   else await extract({ cwd: extraction, file: archive })
   const source = join(extraction, folder, platform === 'win' ? 'node.exe' : 'bin/node')
   const destinationRoot = join(RUNTIME_ROOT, 'node')
