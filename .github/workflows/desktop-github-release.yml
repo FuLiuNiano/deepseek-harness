@@ -44,6 +44,10 @@ jobs:
           $tag = "v$version"
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           $exists = $LASTEXITCODE -eq 0
+          # A missing release is the expected first-publish case. Clear the
+          # native command exit code so the GitHub Actions PowerShell wrapper
+          # does not treat that expected lookup miss as a failed step.
+          $global:LASTEXITCODE = 0
           $shouldRelease = if ($exists) { 'false' } else { 'true' }
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
