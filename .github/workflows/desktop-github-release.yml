@@ -77,17 +77,22 @@ jobs:
         if: steps.release-check.outputs.should_release == 'true'
         shell: pwsh
         run: |
+          $baseVersion = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
           $version = '${{ steps.release-check.outputs.version }}'
-          foreach ($path in @('package.json', 'apps/desktop/package.json')) {
-            $package = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+          $manifests = Get-ChildItem -Path . -Recurse -File -Filter package.json |
+            Where-Object { $_.FullName -notmatch '[\\/](?:node_modules|\.git|\.desktop-build)[\\/]' }
+          foreach ($file in $manifests) {
+            $package = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json
+            if ($package.version -ne $baseVersion) { continue }
             $package.version = $version
             $json = $package | ConvertTo-Json -Depth 100
             [System.IO.File]::WriteAllText(
-              [string](Resolve-Path -LiteralPath $path),
-              "$json`n",
+              $file.FullName,
+              $json + [Environment]::NewLine,
               [System.Text.UTF8Encoding]::new($false)
             )
           }
+          pnpm install --lockfile-only --ignore-scripts
 
       - uses: pnpm/action-setup@v4
         if: steps.release-check.outputs.should_release == 'true'
